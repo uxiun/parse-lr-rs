@@ -26,18 +26,12 @@ fn main() {
 	let rules = from_rules_literal(from_raw_rules(s));
 	// println!("{:#?}", rules);
 	let firsts = all_first(&rules);
-	let s = show!(firsts);
-	println!("{:#?}", s);
-
-	let mut follows = HashMap::new();
-	let follows = {
-		follow(&rules, &mut follows)
-		// let f = follows;
-		// &follows
-	};
+	println!("{:#?}", &firsts);
+	
+	let follows = follow(&rules, &firsts);
 	// let follows = follow(&rules);
 	println!("follows");
-
+	
 	println!("{:?}", follows);
 }
 
@@ -148,9 +142,10 @@ fn all_first<'a>(rules: &'a [Rule]) -> HashMap<&'a str, HashSet<&'a str>> {
 	})
 }
 
-fn follow<'a: 'd, 'd>(
+fn follow<'a,'d>(
 	rules: &'a [Rule],
-	follow_dict: &'a mut HashMap<&'a str, HashSet<&'a str>>,
+	// follow_dict: &'a mut HashMap<&'a str, HashSet<&'a str>>,
+	firsts: &'d HashMap<&'a str, HashSet<&'a str>>
 ) -> HashMap<&'a str, HashSet<&'a str>> {
 	let mut dict: HashMap<&str, (HashSet<&str>, HashSet<&str>)> = HashMap::new();
 	for rule in rules
@@ -174,6 +169,13 @@ fn follow<'a: 'd, 'd>(
 								nons.insert(&rule.left);
 							}
 						}
+					}
+					if let (Some(prev), Some(v)) = (prev_token, firsts.get(t)) {
+						dict.entry(prev)
+							.and_modify(|(ts, ns)| {
+									ns.extend(v.iter());
+							})
+							.or_insert((v.to_owned(), HashSet::new()));
 					}
 					prev_token = Some(t);
 				}
