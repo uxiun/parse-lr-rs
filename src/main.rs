@@ -1,5 +1,10 @@
 #![feature(slice_group_by)]
-use std::collections::{HashMap, HashSet};
+use itertools::{GroupBy, Itertools};
+use std::{
+	collections::{hash_map::RandomState, HashMap, HashSet},
+	hash::{BuildHasher, Hash, Hasher},
+	iter::zip,
+};
 
 use nonempty::NonEmpty;
 // #[cfg(not(debug_assertions))]
@@ -8,10 +13,19 @@ macro_rules! dbg {
 		std::convert::identity($x)
 	};
 }
+
 macro_rules! show {
 	($x:expr) => {
 		println!("▶ {} ↓", stringify!($x));
 		println!("{:#?}", $x);
+		println!("——————————")
+	};
+}
+
+macro_rules! showshort {
+	($x:expr) => {
+		println!("▶ {} ↓", stringify!($x));
+		println!("{:?}", $x);
 		println!("——————————")
 	};
 }
@@ -32,24 +46,84 @@ fn main() {
 		vec!["f", "i"],
 		vec!["f", "(", "e", ")"],
 	];
-	let rules = from_rules_literal(from_raw_rules(s));
+	let lr1grammar = vec![
+		vec!["S", "A"],
+		vec!["A", "E", "=", "E"],
+		vec!["A", "Id"],
+		vec!["E", "E", "+", "T"],
+		vec!["E", "T"],
+		vec!["T", "Num"],
+		vec!["T", "Id"],
+	];
+	let rules = from_rules_literal(from_raw_rules(lr1grammar));
 	let grammar = Grammar::from_rules(&rules);
-	// let initial = Rule
-	let items = (&rules);
-	show!(&items);
+	let rulelist = RuleList(&rules);
 	let firsts = all_first(&rules);
 	show!(&firsts);
 
 	let follows = follow(&rules, &firsts);
-	// let follows = follow(&rules);
-
 	show!(follows);
+
+	let left_history: HashSet<&str> = HashSet::new();
+	if let Some(initial) = RuleItems::initial(&rulelist) {
+		// let items = initial.grouping(HashSet::new(), &firsts, &rulelist);
+		show!(&initial);
+
+		let grouped = initial.grouping(left_history, &firsts, &rulelist);
+		show!(grouped);
+		let forwarded = grouped.forward();
+		show!(forwarded);
+
+		let random = RandomState::new();
+
+		let ((_, hashpair), table) = RuleItems::derivate(initial, &random, &firsts, &rulelist);
+		show!(&table);
+
+		let hashes: Vec<_> = forwarded
+			.into_iter()
+			.map(|(t, g)| get_hash(&g, &random))
+			.collect();
+		show!(hashes);
+	} else {
+		println!("initial was None");
+	}
 }
 
-#[derive(Debug, PartialEq, Eq)]
+fn get_hash<V>(value: &V, random: &RandomState) -> u64
+where
+	V: Hash,
+{
+	let mut hasher = random.build_hasher();
+	value.hash(&mut hasher);
+	hasher.finish()
+}
+
+fn groupBy_run<K, V>(i: &[(K, V)]) -> HashMap<&K, Vec<&V>>
+where
+	K: Eq + Hash,
+{
+	let mut h = HashMap::new();
+	for (key, value) in i.into_iter() {
+		h.entry(key)
+			.and_modify(|e: &mut Vec<&V>| e.push(value))
+			.or_insert(vec![value]);
+	}
+
+	h
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 enum Token<'a> {
 	Nonterminal(&'a str),
 	Terminal(&'a str),
+}
+impl<'a> Token<'a> {
+	fn unwrap(&self) -> String {
+		match *self {
+			Self::Nonterminal(s) => s.to_string(),
+			Self::Terminal(s) => s.to_string(),
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -79,8 +153,21 @@ fn from_raw_rules<'a>(rules: Vec<Vec<&'a str>>) -> Vec<RuleLiteral<'a>> {
 
 #[derive(Debug)]
 struct Rule<'a> {
+	id: usize,
 	left: String,
 	right: Vec<Token<'a>>,
+}
+
+impl Hash for Rule<'_> {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		for token in self.right.iter() {
+			let b = match token {
+				Token::Nonterminal(t) => t.as_bytes(),
+				Token::Terminal(t) => t.as_bytes(),
+			};
+			state.write(b);
+		}
+	}
 }
 
 type GrammarType<'a> = HashMap<String, Vec<&'a [Token<'a>]>>;
@@ -92,7 +179,7 @@ impl<'a> Grammar<'a> {
 	}
 }
 
-struct RuleList<'a>(&'a[Rule<'a>]);
+struct RuleList<'a>(&'a [Rule<'a>]);
 // impl <'a> RuleList<'a> {
 // 	fn filter_by_left(&self, left: &str) -> Self {
 // 		let x =self.0.into_iter().filter(|r| r.left == left).map(|r| *r) ;
@@ -104,10 +191,11 @@ struct RuleList<'a>(&'a[Rule<'a>]);
 struct RuleItem<'a> {
 	rule: &'a Rule<'a>,
 	cursor: usize,
-	ahead: HashSet<&'a str>
+	ahead: HashSet<&'a str>,
 }
-struct RuleItems<'a>(Vec<RuleItem<'a>>);
 
+#[derive(Debug, Clone, Hash)]
+struct RuleItems<'a>(Vec<RuleItem<'a>>);
 
 #[derive(Debug)]
 struct ItemEntry<'a> {
@@ -122,28 +210,32 @@ type ItemMap<'a> = HashMap<String, Vec<ItemEntry<'a>>>;
 #[derive(Debug)]
 struct Items<'a>(ItemMap<'a>);
 
-// impl<'a> Items<'a> {
-// 	fn new(rules: &'a [Rule]) -> Self {
-// 		Items(
-// 			rules
-// 				.into_iter()
-// 				.map(|r| {
-// 					(
-// 						r.left.clone(),
-// 						ItemEntry {
-// 							ahead: vec![],
-// 							cursor: 0,
-// 							tokens: &r.right,
-// 						},
-// 					)
-// 				})
-// 				.collect(),
-// 		)
-// 	}
-// 	fn empty() -> Self {
-// 		Items(HashMap::new())
-// 	}
-// }
+impl<'a, 'd> RuleItem<'a> {
+	fn atcursor(&self) -> Option<&'d Token<'a>> {
+		self.rule.right.get(self.cursor)
+	}
+
+	fn cursor_increment(&self) -> Self {
+		Self {
+			ahead: self.ahead.clone(),
+			cursor: self.cursor + 1,
+			rule: self.rule,
+		}
+	}
+}
+
+impl Hash for RuleItem<'_> {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.rule.hash(state);
+		for h in self.ahead.iter() {
+			state.write(h.as_bytes());
+		}
+		state.write(&self.cursor.to_be_bytes())
+	}
+}
+
+type AutomatonRow<'a> = HashMap<Token<'a>, u64>;
+type AutomatonTable<'a> = HashMap<u64, AutomatonRow<'a>>;
 
 fn from_rules_to_grammar<'a>(rules: &'a [Rule]) -> GrammarType<'a> {
 	rules
@@ -166,7 +258,9 @@ fn from_rules_literal(rules: Vec<RuleLiteral>) -> Vec<Rule> {
 	rules
 		.clone()
 		.into_iter()
-		.map(|r| Rule {
+		.enumerate()
+		.map(|(id, r)| Rule {
+			id,
 			left: r.left,
 			right: r
 				.right
@@ -405,87 +499,260 @@ fn expand_follow_dict<'a, 'd>(
 // 		}
 // 	}
 // }
-impl<'a> RuleItems<'a> {
+impl<'a, 'd: 'a> RuleItems<'a> {
+	fn initial(rulelist: &'a RuleList) -> Option<Self> {
+		let r = rulelist
+			.0
+			.into_iter()
+			.as_slice()
+			.group_by(|s, d| s.left == d.left)
+			.find(|rs| rs.len() == 1)?
+			.get(0);
 
-	
-
-	fn grouping(&self, left_history: HashSet<&str>, firsts: &'a Group, rulelist: &'a RuleList) -> Self {
-		
-
-		let toadd: Vec<_> = self.0.iter().filter_map(|item| {
-			match item.rule.right.get(item.cursor) {
-				Some(Token::Nonterminal(nonterminal))=>{
-					let ah = match item.rule.right.get(item.cursor+1) {
-						Some(Token::Terminal(terminal))=>
-							Some(HashSet::from([*terminal]))
-						,Some(Token::Nonterminal(non))=> {
-							Some(firsts.get(non)?.iter().map(|s| *s).collect())
-						}
-						,_ => None
-					};
-					Some((nonterminal, ah.unwrap_or(item.ahead.clone())))
-				},
-				_=>None,
-				
-			}
-		}).collect();
-		
-		let mut bans = vec![];
-		let selfupdated = self.0.iter().map(|item| {
-			if let Some((sameleft, hset)) = toadd.iter().find(|(left, ahead)| left.to_string() == item.rule.left) {
-				bans.push(*sameleft);
-				
-				let mut h = HashSet::new();
-				h.extend(hset);
-				h.extend(item.ahead.clone().into_iter());
-				RuleItem {
-					// ahead: HashSet::from_iter([
-					// 	hset, 
-					// 	item.ahead.iter().collect() ].into_iter().flatten()
-					// .map(|s| *s)
-					ahead: h,
-					cursor: item.cursor,
-					rule: item.rule
-				}
-			} else {
-				item.clone()
-			}
-		});
-		
-		let nextbase = toadd.iter().filter(|(sameleft, hset)| !bans.contains(sameleft) && !left_history.contains(*sameleft))
-			.flat_map(|(sameleft, hset)| {
-				rulelist.0.into_iter().filter(|&r| r.left == sameleft.to_string())
+		Some(RuleItems(
+			r.into_iter()
 				.map(|r| RuleItem {
 					rule: r,
 					cursor: 0,
-					ahead: hset.clone(),
+					ahead: HashSet::new(),
 				})
+				.collect(),
+		))
+	}
+
+	fn slice(&self) -> &[RuleItem] {
+		&self.0.as_slice()
+	}
+
+	fn derivate(
+		// slic: &'d [RuleItem<'a>],
+		self,
+		random: &RandomState,
+		// count_bonus: usize,
+		// groups: Vec<Self>,
+		firsts: &'a Group,
+		rulelist: &'a RuleList,
+	) -> ((u64, Vec<(u64, Self)>), AutomatonTable<'a>) {
+		// let sli: RuleItems<'a> = self.grouping(HashSet::new(), firsts, rulelist);
+		let toslice = &self.0;
+		let current = self.grouping(HashSet::new(), firsts, rulelist);
+		showshort!(&current);
+
+		let gs = RuleItems::forward(
+			// toslice.as_slice()
+			current.clone(),
+		);
+		show!(gs);
+
+		let (hashgroups, tables): (Vec<_>, Vec<AutomatonTable>) = gs
+			.clone()
+			.into_iter()
+			// .enumerate()
+			.map(|(t, g)| {
+				RuleItems::derivate(
+					// g.0.as_slice()
+					g, random, firsts, rulelist,
+				)
+			})
+			.unzip();
+
+		let (hashes, groups): (Vec<u64>, Vec<Vec<_>>) = hashgroups.into_iter().unzip();
+
+		let row: AutomatonRow = HashMap::from_iter(
+			zip(hashes, gs.clone())
+				.into_iter()
+				.map(|(i, (t, g))| (t, i)),
+		);
+
+		let hash = get_hash(&current, &random);
+
+		let hs = HashMap::from_iter({
+			let mut es: Vec<(u64, AutomatonRow)> = tables
+				.into_iter()
+				.map(|table| table.into_iter())
+				.flatten()
+				.collect();
+			es.push((hash, row));
+			es.into_iter()
+		});
+
+		let mut v = vec![(hash, current)];
+		v.extend(groups.into_iter().flatten());
+
+		((hash, v), hs)
+	}
+
+	// fn forward(slic: &'d [RuleItem<'a>]) -> Vec<(Token<'a>, Self)> {
+	fn forward(self) -> Vec<(Token<'a>, Self)> {
+		// v.into_iter().as_slice()
+		// slic
+		let v = self.0;
+		// let mut grouped = vec![];
+		let gg = v.into_iter().group_by(|j| match j.clone().atcursor() {
+			None => None,
+			Some(t) => Some(*t),
+		});
+		let gv = gg
+			.into_iter()
+			.map(|(k, v)| (k, v.collect()))
+			.collect::<Vec<(_, Vec<_>)>>();
+		let res = groupBy_run(&gv);
+
+		res
+			.into_iter()
+			.filter_map(|(t, s)| match *t {
+				None => None,
+				Some(token) => Some((token, {
+					let items = s
+						.into_iter()
+						.flat_map(|g| g.into_iter().map(|g| g.cursor_increment()))
+						.collect();
+					RuleItems(items)
+				})),
+			})
+			.collect()
+
+		// for (key, group) in &v.into_iter().group_by(|j|
+		// 	match j.clone().atcursor() {
+		// 		None => None,
+		// 		Some(t) => Some( *t )
+		// 	}
+		// ) {
+		// 	if let Some(token) = key {
+		// 		grouped.push((
+		// 			token,
+		// 			RuleItems(group.map(|item| item.cursor_increment()).collect()),
+		// 		))
+		// 	}
+
+		// }
+		// grouped
+	}
+
+	fn grouping(
+		&self,
+		left_history: HashSet<&str>,
+		firsts: &'a Group,
+		rulelist: &'a RuleList,
+	) -> Self {
+		let toadd: Vec<_> = self
+			.0
+			.iter()
+			.enumerate()
+			.filter_map(|(selfi, item)| match item.rule.right.get(item.cursor) {
+				Some(Token::Nonterminal(nonterminal)) => {
+					let ah = match item.rule.right.get(item.cursor + 1) {
+						Some(Token::Terminal(terminal)) => Some(HashSet::from([*terminal])),
+						Some(Token::Nonterminal(non)) => Some(firsts.get(non)?.iter().map(|s| *s).collect()),
+						_ => None,
+					};
+					Some((item.rule, nonterminal, ah.unwrap_or(item.ahead.clone())))
+				}
+				_ => None,
+			})
+			.collect();
+
+		let mut bans = vec![];
+		let mut upded_left_ahead = HashMap::new();
+		let selfupdated = self
+			.0
+			.iter()
+			.enumerate()
+			.map(|(selfi, item)| {
+				if let Some((addrule, &sameleft, hset)) = toadd
+					.iter()
+					.find(|(addrule, sameleft, ahead)| sameleft.to_string() == item.rule.left)
+				{
+					bans.push(sameleft);
+
+					let mut h = HashSet::new();
+					h.extend(hset);
+					h.extend(item.ahead.clone().into_iter());
+					upded_left_ahead.entry(sameleft).or_insert(h.clone());
+					RuleItem {
+						// ahead: HashSet::from_iter([
+						// 	hset,
+						// 	item.ahead.iter().collect() ].into_iter().flatten()
+						// .map(|s| *s)
+						ahead: h,
+						cursor: item.cursor,
+						rule: item.rule,
+					}
+				} else {
+					item.clone()
+				}
+			})
+			.collect::<Vec<_>>();
+
+		let nextbase = toadd
+			.iter()
+			.filter(|(fromrule, sameleft, hset)| {
+				!&bans.contains(sameleft) && !left_history.contains(*sameleft)
+			})
+			.flat_map(|(fromrule, sameleft, hset)| {
+				rulelist
+					.0
+					.into_iter()
+					.filter(|&r| r.left == sameleft.to_string())
+					.map(|r| RuleItem {
+						rule: r,
+						cursor: 0,
+						ahead: {
+							let mut h = HashSet::new();
+							h.extend(hset.clone());
+							h.extend(
+								upded_left_ahead
+									.get(fromrule.left.as_str())
+									.into_iter()
+									.map(|d| d.into_iter())
+									.flatten(),
+							);
+							// h.extend(selfupdated.iter().find_map(|r| {
+							// 	if r.rule.left == sameleft.to_string() {
+							// 		Some(r.ahead.clone())
+							// 	} else {None}
+							// }).into_iter().flatten()
+							// );
+
+							h
+						}, // HashSet::from_iter([
+						   // 	hset.into_iter().collect::<Vec<_>>(),
+						   // 	selfupdated.iter().find_map(|r|
+						   // 		if r.rule.left == sameleft.to_string() {
+						   // 			let s = r.ahead;
+						   // 			Some(s.into_iter())
+						   // 		} else {None}
+						   // 	).into_iter().flatten().collect()
+						   // ].into_iter().flatten().map(|s| *s) ),
+					})
 			});
-		
+
 		let nextitems = RuleItems(nextbase.collect());
 		let history = HashSet::from_iter(
 			[
 				left_history.into_iter().collect::<Vec<_>>(),
-				self.0.iter().map(|item| item.rule.left.as_str()).collect()
-			].into_iter().flatten()
+				self.0.iter().map(|item| item.rule.left.as_str()).collect(),
+			]
+			.into_iter()
+			.flatten(),
 		);
-		
+
 		let deeper = if nextitems.0.len() > 0 {
 			nextitems.grouping(history, firsts, rulelist)
 		} else {
 			RuleItems(vec![])
 		};
-		
-		
-		RuleItems(Vec::from_iter([self.0.clone(), deeper.0].into_iter().flatten() ))
 
+		RuleItems(Vec::from_iter(
+			[selfupdated, deeper.0].into_iter().flatten(),
+		))
 	}
 }
 /*
 fn itemgroup(items: Items, firsts: &Group, grammar: &Grammar) -> Items {
 	let mut itemsj = Items::empty();
 	let content = items.0.into_iter().map(|(k, entries)| {
-		
+
 		if let Some(t) = item.tokens.get(item.cursor) {
 			match *t {
 				Token::Nonterminal(atcursor) => {
@@ -507,14 +774,14 @@ fn itemgroup(items: Items, firsts: &Group, grammar: &Grammar) -> Items {
 							.unwrap_or(&vec![])
 							.iter()
 							.map(| right| {
-								
+
 										ItemEntry {
 											ahead: vec![f],
 											cursor: 0,
 											tokens: right,
 										}
-										
-								
+
+
 							})
 							.collect(),
 						_ => vec![],
