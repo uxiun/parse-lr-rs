@@ -140,6 +140,13 @@ impl Hash for Rule<'_> {
 	}
 }
 
+impl<'a> Rule<'a> {
+	pub fn format_as_tree_node(&self) -> String
+	{
+		format!("{}.{}", self.id, self.left)
+	}
+}
+
 type GrammarType<'a> = HashMap<String, Vec<&'a [Token<'a>]>>;
 struct Grammar<'a>(GrammarType<'a>);
 
@@ -160,7 +167,7 @@ impl<'a> RuleList<'a> {
 		let it = self.0.into_iter().map(|s| s.left.as_str());
 		HashSet::from_iter(it)
 	}
-	
+
 	pub fn terminals(&self) -> HashSet<&str> {
 		let mut hs = HashSet::new();
 		for rule in self.0.into_iter() {
@@ -544,7 +551,7 @@ impl<'a, 'd: 'a> RuleItems<'a> {
 			.group_by(|s, d| s.left == d.left)
 			.find(|rs| rs.len() == 1)?
 			.get(0);
-		
+
 		Some(RuleItems(
 			r.into_iter()
 				.map(|r| RuleItem {
@@ -555,11 +562,11 @@ impl<'a, 'd: 'a> RuleItems<'a> {
 				.collect(),
 		))
 	}
-	
+
 	fn slice(&self) -> &[RuleItem] {
 		&self.0.as_slice()
 	}
-	
+
 	fn derivate(
 		// slic: &'d [RuleItem<'a>],
 		self,
@@ -569,8 +576,6 @@ impl<'a, 'd: 'a> RuleItems<'a> {
 		firsts: &'a Group,
 		rulelist: &'a RuleList,
 	) -> ((u64, Vec<(u64, Self)>), AutomatonTable<'a>) {
-		// let sli: RuleItems<'a> = self.grouping(HashSet::new(), firsts, rulelist);
-		let toslice = &self.0;
 		let current = self.grouping(HashSet::new(), firsts, rulelist);
 
 		let gs = RuleItems::forward(
@@ -578,37 +583,49 @@ impl<'a, 'd: 'a> RuleItems<'a> {
 			current.clone(),
 		);
 
-		let (hashgroups, tables): (Vec<_>, Vec<AutomatonTable>) = gs
+		// let (hashgroups, tables): (Vec<_>, Vec<AutomatonTable>) = gs
+		// 	.clone()
+		// 	.into_iter()
+		// 	// .enumerate()
+		// 	.map(|(t, g)| {
+		// 		RuleItems::derivate(
+		// 			// g.0.as_slice()
+		// 			g, random, firsts, rulelist,
+		// 		)
+		// 	})
+		// 	.unzip();
+
+		let (pathtokens, tuples): (Vec<_>, Vec<_>) = gs
 			.clone()
 			.into_iter()
-			// .enumerate()
-			.map(|(t, g)| {
-				RuleItems::derivate(
-					// g.0.as_slice()
-					g, random, firsts, rulelist,
-				)
-			})
+			.map(|(t, items)| (t, items.derivate(random, firsts, rulelist)))
 			.unzip();
+		// collect::<Vec<_>>();
+
+		let (hashgroups, tables): (Vec<_>, Vec<_>) = tuples.into_iter().unzip();
 
 		let (hashes, groups): (Vec<u64>, Vec<Vec<_>>) = hashgroups.into_iter().unzip();
 
 		let row: AutomatonRow = HashMap::from_iter(
-			zip(hashes, gs.clone())
+			zip(hashes, pathtokens)
 				.into_iter()
-				.map(|(i, (t, g))| (t.to_tokenkey(), i)),
+				.map(|(i, t)| (t.to_tokenkey(), i)),
 		);
 
 		let hash = get_hash(&current, &random);
 
-		let hs = HashMap::from_iter({
-			let mut es: Vec<(u64, AutomatonRow)> = tables
-				.into_iter()
-				.map(|table| table.into_iter())
-				.flatten()
-				.collect();
-			es.push((hash, row));
-			es.into_iter()
+		let mut hs = HashMap::from_iter({
+			// let mut es
+			// : Vec<(u64, AutomatonRow)>
+			// =
+
+			tables.into_iter().map(|table| table.into_iter()).flatten()
+			// .collect();
+			// es.push((hash, row));
+			// es.into_iter()
 		});
+
+		hs.insert(hash, row);
 
 		let mut v = vec![(hash, current)];
 		v.extend(groups.into_iter().flatten());

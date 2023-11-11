@@ -59,7 +59,7 @@ pub struct TableSet<'a> {
 }
 
 #[derive(Debug)]
-pub struct Tables<'a,H,N> {
+pub struct Tables<'a, H, N> {
 	pub terminal: HashMap<H, TerminalTableRow<'a, H, N>>,
 	pub nonterminal: HashMap<H, NonterminalTableRow<'a, H>>,
 }
@@ -71,7 +71,7 @@ pub fn parse_table<'a>(
 ) -> TableSet<'a> {
 	let (keymap, mut tableset) = process_automaton(initialid, hashgroups, automatable);
 	add_reduce(keymap, &mut tableset.terminal);
-	
+
 	tableset
 }
 
@@ -154,38 +154,26 @@ pub fn process_automaton<'a>(
 		// }
 	}
 
-	let accs = hashgroups
-		.iter()
-		.filter_map(|(idfrom, items)| {
-			if *idfrom == initialid &&
-				items.0.iter().any(|item| {
-					
-					let i: Vec<_> = item.clone().ahead.into_iter().collect();
-					[Ahead::End] == i.as_slice()
-				}) {
-				
-				Some(idfrom)
-			} else {None}
-			
-			// if let [item] = items.0.as_slice() {
-			// 	let i: Vec<_> = item.clone().ahead.into_iter().collect();
-			// 	if let [Ahead::End] = i.as_slice() {
-			// 		Some((idfrom))
-			// 	} else {
-			// 		None
-			// 	}
-			// } else {
-			// 	None
-			// }
+	{
 
-		})
-		.collect::<Vec<_>>();
+		// let accs = hashgroups
+		// 	.iter()
+		// 	.filter_map(|(idfrom, items)| {
+		// 		if *idfrom == initialid &&
+		// 			items.0.iter().any(|item| {
 
-	showshort!(accs);
-
-	accs.into_iter().for_each(|id| {
-		terminal_table.insert(*id, HashMap::from_iter([(Ahead::End, TerminalOpe::Acc)]));
-	});
+		// 				let i: Vec<_> = item.clone().ahead.into_iter().collect();
+		// 				[Ahead::End] == i.as_slice()
+		// 			}) {
+		// 			Some(idfrom)
+		// 		} else {None}
+		// 	})
+		// 	.collect::<Vec<_>>();
+		// showshort!(accs);
+		// accs.into_iter().for_each(|id| {
+		// 	terminal_table.insert(*id, HashMap::from_iter([(Ahead::End, TerminalOpe::Acc)]));
+		// });
+	}
 
 	(
 		HashMap::from_iter(hashgroups.into_iter()),

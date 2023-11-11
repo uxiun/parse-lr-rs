@@ -46,8 +46,10 @@ where
 {
 	// separated_list0(sep, f)()
 	// let res = separator(src);
-	let res = many0(preceded(sep, f))(src);
-
+	let res = many0(preceded(
+		many0(sep)
+		, f))(src);
+	
 	match res {
 		Ok((remained_src, ve)) => {
 			// show!(remained_src);

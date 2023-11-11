@@ -7,7 +7,9 @@ use parselr::{
 	show, showshort,
 	table::{parse_table, TableSet, Tables},
 	token::tokenize_word,
+	tree::{print_parse_tree, parsed_to_ptree}, start::parseprint,
 };
+use ptree::print_tree;
 use std::{
 	collections::{hash_map::RandomState, HashMap, HashSet},
 	hash::{BuildHasher, Hash, Hasher},
@@ -54,7 +56,7 @@ fn main() {
 		vec!["T", "T", "*", "Num"],
 		vec!["T", "Num"],
 	];
-	let rules = from_rules_literal(from_raw_rules(parsegrammar));
+	let rules = from_rules_literal(from_raw_rules(lr1grammar));
 	let rulelist = RuleList(&rules);
 	let firsts = all_first(&rules);
 	show!(&firsts);
@@ -76,14 +78,29 @@ fn main() {
 			terminal: tt,
 		};
 
-		let src = " Num +   Num * Num";
-		let input = tokenize_word(src);
-		
-		let initialid = iddict.get(&initialid).unwrap_or(&(1000 as usize));
-		let parsed = parselr(input, *initialid, &tableset, &rulelist);
-		show!(parsed);
-	}
+		let sentences = [
+			" Id = Id +  Num + Num",
+			// "Num = Id + Num = Num + Id + Id", // fail
+			" Id + Num = Num + Id + Id",
+		];
 
+		parseprint(&sentences, initialid, &iddict, &rulelist, &tableset);
+
+
+		// let mut input = tokenize_word(src);
+		
+		// let initialid = iddict.get(&initialid).unwrap_or(&(1000 as usize));
+		// let mut parsed = parselr(input.clone(), *initialid, &tableset, &rulelist);
+		// show!(parsed);
+		
+		// // print_parse_tree(&mut input, &mut parsed.reduced, &rulelist);
+		// // builderror
+	
+		// let tree = parsed_to_ptree(&mut input, &mut parsed.reduced, &rulelist);
+		// print_tree(&tree);
+
+	}
+	
 	// let left_history: HashSet<&str> = HashSet::new();
 	// if let Some(initial) = RuleItems::initial(&rulelist) {
 	// 	// let items = initial.grouping(HashSet::new(), &firsts, &rulelist);

@@ -1,9 +1,9 @@
-use std::{hash::Hash, fmt::Debug};
+use std::{fmt::Debug, hash::Hash};
 
 use crate::{
 	automaton::{Ahead, RuleList, Token},
 	showshort,
-	table::{Ope, TableSet, TerminalOpe, TerminalTable, NonterminalTable, Tables},
+	table::{NonterminalTable, Ope, TableSet, Tables, TerminalOpe, TerminalTable},
 };
 
 #[derive(Debug, Clone)]
@@ -37,26 +37,25 @@ impl<'a> ToString for TokenWithLiteral<'a> {
 	}
 }
 
-pub fn parselr<'a,H>(
+pub fn parselr<'a, H>(
 	input: Vec<TokenWithLiteral<'a>>,
 	initialid: H,
-	table: &'a Tables<'a,H,usize>,
+	table: &'a Tables<'a, H, usize>,
 	rulelist: &'a RuleList,
-) -> ParseStacks<'a,H,usize> 
+) -> ParseStacks<'a, H, usize>
 where
-	H: Hash + Eq + Debug + Clone
+	H: Hash + Eq + Debug + Clone,
 {
 	let mut s = ParseStacks::new(input);
 	s.start_parse(initialid, table, rulelist);
 	s.clone()
 }
 
-impl<'a,H,N> ParseStacks<'a,H,N> 
-{
+impl<'a, H, N> ParseStacks<'a, H, N> {
 	// fn read(&mut self, table: &TableSet) -> Option<Ope>
 	// {
 	// }
-	
+
 	fn new(input: Vec<TokenWithLiteral<'a>>) -> Self {
 		Self {
 			input,
@@ -66,34 +65,34 @@ impl<'a,H,N> ParseStacks<'a,H,N>
 	}
 }
 
-impl<'a,H,N> ParseStacks<'a,H,N>
-where 
+impl<'a, H, N> ParseStacks<'a, H, N>
+where
 	H: Debug,
-	N: Debug
+	N: Debug,
 {
 	fn print(&self, hideliteral: bool) {
-		let input = self.input.iter().map(|t| 
-			if hideliteral {
-				t.terminal.to_string()
-			} else {
-				
-				t.to_string()
-			}
-		).collect::<Vec<_>>();
+		let input = self
+			.input
+			.iter()
+			.map(|t| {
+				if hideliteral {
+					t.terminal.to_string()
+				} else {
+					t.to_string()
+				}
+			})
+			.collect::<Vec<_>>();
 		showshort!(input);
 		showshort!(self.stack);
 		showshort!(self.reduced);
 	}
 }
 
-
-impl<'a,H,> ParseStacks<'a,H,usize>
-where 
+impl<'a, H> ParseStacks<'a, H, usize>
+where
 	H: Hash + Eq + Debug + Clone,
-
 {
-	fn start_parse
-	(&mut self, initialid: H, table: &'a Tables<'a,H,usize>, rulelist: &'a RuleList) {
+	fn start_parse(&mut self, initialid: H, table: &'a Tables<'a, H, usize>, rulelist: &'a RuleList) {
 		self.input.push(TokenWithLiteral {
 			terminal: Ahead::End,
 			literal: "$",
@@ -103,11 +102,9 @@ where
 		self.parser(table, rulelist);
 	}
 
-	
-	
-	fn parser(&mut self, table: &'a Tables<'a,H,usize>, rulelist: &'a RuleList) 
-	// where 
-		// H: Hash + Eq
+	fn parser(&mut self, table: &'a Tables<'a, H, usize>, rulelist: &'a RuleList)
+	// where
+	// H: Hash + Eq
 	{
 		//読み取り
 		println!("parser()");
@@ -117,8 +114,8 @@ where
 				let k = self.stack.last()?;
 				table.terminal.get(k)?.get(&top.terminal)
 			};
-			let mut acc = false;
 			if let Some(ope) = got() {
+				let mut acc = false;
 				match ope {
 					TerminalOpe::Acc => {
 						println!("accepted!");
@@ -126,6 +123,7 @@ where
 					}
 					TerminalOpe::Shift(s) => {
 						self.stack.push(s.clone());
+						self.input.pop();
 					}
 					TerminalOpe::Reduce(s) => {
 						self.reduced.push(s.clone());
@@ -133,12 +131,12 @@ where
 							for _ in 0..rule.right.len() {
 								self.stack.pop();
 							}
-							
+
 							let got = || {
 								let k = self.stack.last()?;
 								table.nonterminal.get(&k)?.get(rule.left.as_str())
 							};
-							
+
 							if let Some(id) = got() {
 								self.stack.push(id.clone());
 							}
@@ -147,14 +145,24 @@ where
 						}
 					}
 				}
+
+				if !acc {
+					self.parser(table, rulelist);
+				}
 			} else {
-				showshort!(self.stack);
-				showshort!(top.terminal);
-				panic!("table.terminal.get(self.stack.last)?.get(&top.terminal) returned None");
-			}
-			if !acc {
-				self.input.pop();
-				self.parser(table, rulelist);
+				let isend = if let [tw] = self.input.as_slice() {
+					tw.terminal == Ahead::End
+				} else {
+					false
+				};
+
+				if isend {
+					println!("all input consumed!");
+				} else {
+					showshort!(self.stack);
+					showshort!(top.terminal);
+					panic!("table.terminal.get(self.stack.last)?.get(&top.terminal) returned None");
+				}
 			}
 		}
 	}

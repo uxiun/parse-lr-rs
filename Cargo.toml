@@ -6,7 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
+ptree = "0.4.0"
+syntree = "0.14.5"
+cstree = "0.12.0"
 tabled = "0.14.0"
 nom = "7.1.3"
 itertools = "0.11.0"
